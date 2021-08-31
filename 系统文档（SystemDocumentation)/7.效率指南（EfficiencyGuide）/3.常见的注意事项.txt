@@ -75,5 +75,5 @@ atom结构不会进行垃圾回收。atom被创建后，永远也不会被回收
 
 而且，混合使用位语法匹配和`split_binary/2`函数，可能会阻碍位于法匹配的某些优化。（译：不可混合使用这两种用法）
 
-
-> 翻译内容来自[官方文档](http://erlang.org/doc/efficiency_guide/myths.html)
+> 翻译内容来自[官方文档](http://erlang.org/doc/efficiency_guide/myths.html)  
+> [GitHub地址](https://github.com/SuperMuscleMan/ErlangTranslation)
