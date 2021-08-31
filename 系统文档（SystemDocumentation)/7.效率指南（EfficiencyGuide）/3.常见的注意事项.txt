@@ -1,0 +1,79 @@
+## 【效率指南】 常见的注意事项 ##
+*本节列出了一些需要注意的模块和BIF，不仅仅是从性能的角度。*
+
+> Erlang/OTP Version:24  
+> System Documentation Version:12.0.2  
+> 导航：System Documentation - Efficiency Guide - Common Caveats
+
+### 1.`timer`模块 ###
+使用[`erlang:senda_after/3`](http://erlang.org/doc/man/erlang.html#send_after-3)和[`erlang:start_timer/3`](http://erlang.org/doc/man/erlang.html#start_timer-3)创建定时器，比使用STDLIB中的[`timer`](http://erlang.org/doc/man/timer.html)模块高效很多。
+
+`timer`模块使用了一个单独的进程去管理定时器。如果有很多进程频繁的创建和取消定时器，那么这个进程很容易超载。
+
+`timer`模块中有一些函数（如`timer:tc/3`和`timer:sleep/1`），调用时不需要timer(gen_server)进程执行，因此不会有问题。
+
+### 2.`list_to_atom/1` ###
+atom结构不会进行垃圾回收。atom被创建后，永远也不会被回收。如果atom数量达到限制（默认1048576个），仿真器将会终止。
+
+因此，在连续运行的系统中，将任意输入的字符串转换为atom是很危险的。如果只允许某些定义规范的atom作为输入，则可以使用[`list_to_existing_atom/1`](http://erlang.org/doc/man/erlang.html#list_to_existing_atom-1)来避免拒绝服务（denail-of-service)。（所有要用到的atom必须在早期创建好，例如，只在一个模块中使用的atom，在加载模块时就创建好了）
+
+使用`list_to_atom/1`构建一个atom，像下面这样传递给`apply/3`，这样的方式开销很大，不建议在时间关键型代码中使用：
+    
+	`apply(list_to_atom("some_prefix"++Var), foo, Args)`
+### 3.`length/1` ###
+计算列表长度的时间与列表长度成正比，与`tuple_size/1`，`byte_size/1`，和`bit_size/1`相反，这些函数的执行时间都是恒定的。
+
+通常，不需要担心`length/1`的执行速度，因为它是在C语言中高效实现的。在时间关键型代码中，如果输入的列表很长，你可能想避免这种情况。
+
+`length/1`的某些用法，可以用模式匹配替代。例如如下代码：
+    
+	foo(L) when length(L) >= 3 ->
+		...
+
+可以重写为：
+    
+    foo([_,_,_|_]=L) ->
+   		...
+有一个细微的区别，如果`L`不是一个List结构，那么`length(L)`会执行失败（译：但是会被when中的catch捕获到，并返回false），而第二个代码片段中，匹配了一个错误的List结构。
+
+### 4.`setelement/3` ###
+[`setelement/3`](http://erlang.org/doc/man/erlang.html#setelement-3)函数会复制它修改的元组。因此，在一个循环中使用`setelement/3`更新一个元组，每次都会创建新的副本。
+
+元组复制的规则有一个例外，如果编译器发现破坏性更新元组的结果与复制一次元组的结果相同，那么会把`setelement/3`的调用替换为特殊毁灭性的`setelement`指令。在下面的代码中，第一个`setelement/3`会复制元组并修改第九个元素：
+    
+    multiple_setelement(T0) ->
+	    T1 = setelement(9, T0, bar),
+	    T2 = setelement(7, T1, foobar),
+	    setelement(5, T2, new_value).
+
+下面两个`setelement/3`调用，在第一个副本元组中进行修改。
+
+应用这样的优化，必须满足如下条件：
+
+- 索引必须是整型，不能是变量或表达式。
+- 索引顺序必须是降序。
+- 在调用`setelement/3`之间不可调用其他函数。
+- 首次调用`setelement/3`的返回值，只能用作后续调用`setelement/3`的参数
+
+如果代码没法写成上面`multiple_setelement/1`示例的格式，在一个大型的元组中修改多个元素时，最好的方法是将这个元组转换为一个list，修改完后在转换为元组。
+
+### 5.`size/1` ###
+`size/1`返回Tuple和Binary的大小。
+
+使用BIF的`tuple_size/1`和`byte_size/1`函数，给编译器和运行时系统提供了更多的优化机会。另一个优点是BIF的这两个函数，给[Dialyzer](http://erlang.org/doc/apps/dialyzer/index.html)提供了更多的类型信息。
+
+### 6.`split_binary/2` ###
+使用匹配来分割binary，通常比`split_binary/2`函数更加高效。
+    
+	%%正确的做法
+	<<Bin1:Num/binary,Bin2/binary>> = Bin
+
+
+	%%错误的做法
+	{Bin1,Bin2} = split_binary(Bin, Num)
+
+
+而且，混合使用位语法匹配和`split_binary/2`函数，可能会阻碍位于法匹配的某些优化。（译：不可混合使用这两种用法）
+
+
+> 翻译内容来自[官方文档](http://erlang.org/doc/efficiency_guide/myths.html)
